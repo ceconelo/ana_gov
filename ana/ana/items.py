@@ -7,6 +7,6 @@ import scrapy
 
 
 class AnaItem(scrapy.Item):
-    # define the fields for your item here like:
-    # name = scrapy.Field()
-    pass
+    url = scrapy.Field()
+    reservoir_name = scrapy.Field()
+    content_table = scrapy.Field()
