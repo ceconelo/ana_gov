@@ -2,7 +2,7 @@ BOT_NAME = 'ana'
 SPIDER_MODULES = ['ana.spiders']
 NEWSPIDER_MODULE = 'ana.spiders'
 # Absolute path that will be used to save the datasets
-ABSOLUTE_PATH = r'C:\Users\tceco\OneDrive\Documentos\THIAGO\CODIGO_FONTE\PROJETOS\ana_gov\ana\ana\datasets'
+ABSOLUTE_PATH = r' FILL HERE'
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = False
 # Configure item pipelines

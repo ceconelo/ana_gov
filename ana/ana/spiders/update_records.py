@@ -16,9 +16,8 @@ from tqdm import tqdm
 
 class UpdadeRecordsSpider(scrapy.Spider):
     # Spiser name
-    name = 'updade_records'
+    name = 'update_records'
     urls = ['https://www.ana.gov.br/sar0/Medicao']
-    df_last = None
     reservoir_dict = None
 
     # The first request on website defined on urls variable
@@ -42,7 +41,6 @@ class UpdadeRecordsSpider(scrapy.Spider):
                 last_day = pd.to_datetime(df_last['Data da Medição'].iloc[-1], format="%d/%m/%Y")
                 start = (last_day + timedelta(1)).strftime('%d/%m/%Y')
                 end = datetime.today().strftime('%d/%m/%Y')
-                self.df_last = df_last
                 # Requistion passing new period
                 # start = Date of last record identified on file + one day and
                 # end = today
@@ -62,12 +60,13 @@ class UpdadeRecordsSpider(scrapy.Spider):
         reservoir_name = dict_reservoir_reverse[reservoir_code]
         # checking if there are records in the dataframe
         if len(df_new) > 0:
+            df_last = pd.read_csv(f'ana/datasets/{reservoir_name}.csv')
             print(f'Accessing: {response.url}.')
             print(f'Reservoir: {reservoir_name}')
             print(f'{len(df_new)} new records was found.')
             print('---------------------------------------')
             # Concating new records
-            df_updated = pd.concat([self.df_last, df_new], ignore_index=True)
+            df_updated = pd.concat([df_last, df_new], ignore_index=True)
             # object that stores the dataframe
             item = AnaItem()
             item['content_table'] = df_updated
