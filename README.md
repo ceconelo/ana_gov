@@ -34,6 +34,11 @@ The project was built with the Scrapy framework and contains two spiders that pe
 ## How to Use
 In your virtual environment and inside the project folder (../ana).
 
+- If you want to use a custom list define it in main.py module
+```bash
+  python3 .\main.py 
+```
+
 - to download the history of the reservoirs
 ```bash
   scrapy crawl new_files -L WARN  

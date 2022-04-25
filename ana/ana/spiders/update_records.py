@@ -6,6 +6,10 @@ from datetime import datetime, timedelta
 import os
 from tqdm import tqdm
 
+GREEN = '\033[92m[+]\033[0m'
+YELLOW = '\033[33m[+]\033[0m'
+
+
 '''
     This script is responsible for updating existing files on your local machine.
     It checks if there are files in the project's <datasets> folder, if there is, it 
@@ -17,7 +21,7 @@ from tqdm import tqdm
 class UpdadeRecordsSpider(scrapy.Spider):
     # Spiser name
     name = 'update_records'
-    urls = ['https://www.ana.gov.br/sar0/Medicao']
+    urls = ['https://www.ana.gov.br/sar0/MedicaoSin']
     reservoir_dict = None
 
     # The first request on website defined on urls variable
@@ -27,32 +31,33 @@ class UpdadeRecordsSpider(scrapy.Spider):
 
     # Callback of start_requests
     def parse(self, response, **kwargs):
-        # Get list of revervoirs saved on pickle file
+        # Get dict of revervoirs saved on pickle file
         # This file is created by new_files spider
         self.reservoir_dict = pickle.load(open(f'ana/datasets/reservoirs_list.sav', 'rb'))
         # Get files salved on local machine
         files = [f for f in os.listdir('ana/datasets') if '.csv' in f]
         # If exists files on local update them
-        if files:
-            for file in tqdm(files, 'Files found:'):
-                splited_file = file.split('.')
-                reservoir_code = self.reservoir_dict[splited_file[0]]
-                df_last = pd.read_csv(fr'ana/datasets/{file}')
+        to_update = {name[:-4]: self.reservoir_dict[name[:-4]] for name in files}
+        print(f" {GREEN} Looking for new records.")
+        if to_update:
+            for reservoir in tqdm(to_update, 'Files found:'):
+                reservoir_code = to_update[reservoir]
+                df_last = pd.read_csv(fr'ana/datasets/{reservoir}.csv')
                 last_day = pd.to_datetime(df_last['Data da Medição'].iloc[-1], format="%d/%m/%Y")
                 start = (last_day + timedelta(1)).strftime('%d/%m/%Y')
-                end = datetime.today().strftime('%d/%m/%Y')
+                end = (datetime.today() - timedelta(1)).strftime('%d/%m/%Y')
                 # Requistion passing new period
                 # start = Date of last record identified on file + one day and
-                # end = today
+                # end = today - one day
                 yield scrapy.Request(
-                    f'https://www.ana.gov.br/sar0/Medicao?dropDownListReservatorios={reservoir_code}'
+                    f'https://www.ana.gov.br/sar0/MedicaoSin?dropDownListReservatorios={reservoir_code}'
                     f'&dataInicial={start}&dataFinal={end}&button=Buscar#', callback=self.parse_reservoirs)
 
     # Callback of request
     def parse_reservoirs(self, response):
         # Get the content passed by the request
         df_new = pd.read_html(response.text, decimal=',', thousands='.')[0]
-        # Reverting the Reservoir List (key <-> value)
+        # Reverting the Reservoir dict (key <-> value)
         dict_reservoir_reverse = dict()
         for key_rev, value_rev in self.reservoir_dict.items():
             dict_reservoir_reverse[value_rev] = key_rev
@@ -61,10 +66,7 @@ class UpdadeRecordsSpider(scrapy.Spider):
         # checking if there are records in the dataframe
         if len(df_new) > 0:
             df_last = pd.read_csv(f'ana/datasets/{reservoir_name}.csv')
-            print(f'Accessing: {response.url}.')
-            print(f'Reservoir: {reservoir_name}')
-            print(f'{len(df_new)} new records was found.')
-            print('---------------------------------------')
+            print(f'{GREEN} {reservoir_name}: {len(df_new)} new records was found.')
             # Concating new records
             df_updated = pd.concat([df_last, df_new], ignore_index=True)
             # object that stores the dataframe
@@ -74,7 +76,5 @@ class UpdadeRecordsSpider(scrapy.Spider):
             # The pipelines.py script file is responsible for handling the object item
             yield item
         else:
-            print(f'Accessing: {response.url}.')
-            print(f'Reservoir: {reservoir_name}')
-            print(f'No new records found.')
-            print('---------------------------------------')
+            print(f" {YELLOW} {reservoir_name}: No new records found.")
+

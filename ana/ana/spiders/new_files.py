@@ -1,10 +1,12 @@
 import scrapy
 import pandas as pd
-import pickle
-import os
-from unidecode import unidecode
 from tqdm import tqdm
 from ..items import AnaItem
+from .reservoir_util import Reservoirs
+import pickle
+
+GREEN = '\033[92m[+]\033[0m'
+YELLOW = '\033[33m[+]\033[0m'
 
 '''
     Script responsible for checking and downloading new reservoirs.
@@ -18,13 +20,18 @@ from ..items import AnaItem
 class NewFilesSpider(scrapy.Spider):
     # Spiser name
     name = 'new_files'
-    urls = ['https://www.ana.gov.br/sar0/Medicao']
+
+    urls = ['https://www.ana.gov.br/sar0/MedicaoSin']
     reservoir_dict = dict()
     dict_reservoir_reverse = dict()
-    file_only_names = []
     # definition of the historical period
-    start = '01/01/1995'
-    end = '01/03/2022'
+    start = '01/04/2022'
+    end = '05/04/2022'
+
+    # List coming from main.py
+    def __init__(self, list_names_reservoirs=None, **kwargs):
+        super().__init__(**kwargs)
+        self.list_names_reservoirs = list_names_reservoirs
 
     # The first request on website defined on urls variable
     def start_requests(self):
@@ -33,40 +40,42 @@ class NewFilesSpider(scrapy.Spider):
 
     # Callback of start_requests
     def parse(self, response, **kwargs):
-        # Get list of revervoirs in website
-        for reservoir in response.xpath('//select[@name="dropDownListReservatorios"]//option')[1:]:
-            key = unidecode(str(reservoir.xpath('.//text()').get()).replace(' ', '').strip())
-            value = reservoir.xpath('.//@value').get()
-            self.reservoir_dict[key] = value
-        # Saving the dict that have the list of revervoirs
+        print(f" {GREEN} Looking for new files.")
+        # Saving a dictionaries with all the reservoirs found on the website
+        all_reservoirs = Reservoirs.get_all_reservoris(response)
+        reservoirs = Reservoirs(all_reservoirs, response)
+        self.reservoir_dict = reservoirs.dict_reservoirs()
         pickle.dump(self.reservoir_dict, open(f'ana/datasets/reservoirs_list.sav', 'wb'))
-        # Get files salved on local machine
-        files = [f for f in os.listdir('ana/datasets') if '.csv' in f]
-        # If exists files on local update them
-        if files:
-            # Getting the name of the files.
-            for file in files:
-                splited_file = file.split('.')
-                self.file_only_names.append(splited_file[0])
-            # Verifing if exists new reservoirs on list of reservoirs
-            to_compare_reservoir = {fon: self.reservoir_dict[fon] for fon in self.file_only_names}
-            reservoirs_to_search = {fnr: self.reservoir_dict[fnr] for fnr in
-                                    set(self.reservoir_dict).difference(to_compare_reservoir)}
-            # If true, let's rebuild the list of reservoirs
-            if len(reservoirs_to_search) > 0:
-                self.reservoir_dict = reservoirs_to_search
-        # request for the data of each reservoir on the list
-        for k_reservoir in tqdm(self.reservoir_dict, desc='Searching Reservoirs:'):
-            yield scrapy.Request(
-                f'https://www.ana.gov.br/sar0/Medicao?dropDownListReservatorios={self.reservoir_dict[k_reservoir]}'
-                f'&dataInicial={self.start}&dataFinal={self.end}&button=Buscar#',
-                callback=self.parse_reservoir)
+        # Checking if the past list is empty
+        # If yes, the logic is to take all the reservoirs
+        if self.list_names_reservoirs is not None:
+            print('list_names_reservoirs is not None')
+            reservoirs = Reservoirs(self.list_names_reservoirs, response)
+            self.reservoir_dict = reservoirs.dict_reservoirs()
+        # Checking if there is already a local file referring to the reservoir
+        self.reservoir_dict = Reservoirs.reservoirs_to_search(self.reservoir_dict)
+        # If the files already exist locally this dict returns empty.
+        if len(self.reservoir_dict) > 0:
+            # request for the data of each reservoir on the dict
+            for k_reservoir in tqdm(self.reservoir_dict, desc='Reservoirs:'):
+                print(k_reservoir)
+                yield scrapy.Request(
+                    f'https://www.ana.gov.br/sar0/MedicaoSin?dropDownListReservatorios={self.reservoir_dict[k_reservoir]}'
+                    f'&dataInicial={self.start}&dataFinal={self.end}&button=Buscar#',
+                    callback=self.parse_reservoir)
+        else:
+            print(f" {YELLOW} There are no new files to download")
 
     # Callback of Request
     def parse_reservoir(self, response):
         # Get the content passed by the request
         content = pd.read_html(response.text, decimal=',', thousands='.')[0]
-        # Reverting the Reservoir List (key <-> value)
+        print('Got content...')
+        # If the last line is incomplete drop it
+        content = content[content.iloc[:, 3].str.isnumeric()]
+        print('Content filtered')
+        #failed_banks[failed_banks['Closing Date'].dt.year == 2017]
+        # Reverting the Reservoir dict (key <-> value)
         for key_rev, value_rev in self.reservoir_dict.items():
             self.dict_reservoir_reverse[value_rev] = key_rev
         reservoir_code = str(response.url).split('=')[1].split('&')[0]
@@ -77,14 +86,8 @@ class NewFilesSpider(scrapy.Spider):
             item = AnaItem()
             item['reservoir_name'] = reservoir_name
             item['content_table'] = content
-            print(f'Accessing: {response.url}.')
-            print(f'Reservoir: {reservoir_name}')
-            print(f'Total: {len(content)} records.')
-            print('---------------------------------------')
+            print(f'{GREEN} Reservoir: {reservoir_name} have {len(content)} records.')
             # The pipelines.py script file is responsible for handling the object item
             yield item
         else:
-            print(f'Accessing: {response.url}.')
-            print(f'Reservoir: {reservoir_name}.')
-            print(f'Total: Records not found.')
-            print('---------------------------------------')
+            print(f'{YELLOW} Reservoir: {reservoir_name} records not found.')
